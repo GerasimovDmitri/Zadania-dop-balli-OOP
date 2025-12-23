@@ -1,97 +1,85 @@
-#include <iostream>
-#include <vector>
+#ifndef SIMPLERNG_HPP
+#define SIMPLERNG_HPP
+
 #include <iterator>
 #include <cmath>
 #include <stdexcept>
 
+class EndSentinel {
+public:
+    EndSentinel(double initial_x, double eps) : m_initial_x(initial_x), m_eps(eps) {}
+    double initial_x() const { return m_initial_x; }
+    double eps() const { return m_eps; }
+private:
+    double m_initial_x;
+    double m_eps;
+};
+
 class SimpleRNG {
 private:
-    int m_m;
-    double m_a, m_c;
-    double m_current_x;
+    double m_a, m_c, m_m, m_current_x, m_initial_x;
+    double m_eps;
+
+    double next() {
+        m_current_x = std::fmod(m_a * m_current_x + m_c, m_m);
+        return m_current_x;
+    }
+
 public:
-    SimpleRNG(int m, double a, double c, double initial_x = 0.0)
-        : m_m(m), m_a(a), m_c(c), m_current_x(initial_x) {
-        if (m <= 1 || a <= 0 || a >= 1 || c <= 0 || c >= m) {
-            throw std::invalid_argument("Invalid parameters, Peredekivai");
+    SimpleRNG(double a, double c, double m, double start_x = 0.1, double eps_val = 0.05)
+        : m_a(a), m_c(c), m_m(m), m_current_x(start_x), m_initial_x(start_x), m_eps(eps_val) {
+        if (m_m <= 1.0 || m_a <= 0.0 || m_a >= 1.0 || m_c <= 0.0 || m_c >= m_m) {
+            throw std::invalid_argument("Invalid parameters: m must be > 1, 0 < a < 1, 0 < c < m");
         }
     }
 
     void reset(double x) {
         m_current_x = x;
+        m_initial_x = x;
     }
 
     void reset() {
-        m_current_x = 0.0;
+        m_current_x = m_initial_x;
     }
 
     class Iterator {
     private:
-        int m_m;
-        double m_a, m_c;
-        double m_current_x;
+        SimpleRNG* rng;
+        double current_x;
+
     public:
         using iterator_category = std::input_iterator_tag;
         using value_type = double;
-        using difference_type = ptrdiff_t;
+        using difference_type = std::ptrdiff_t;
         using pointer = double*;
-        using reference = double&; 
+        using reference = double&;
 
-        Iterator(int m, double a, double c, double x)
-            : m_m(m), m_a(a), m_c(c), m_current_x(x) {}
+        Iterator(SimpleRNG* r, double init_x) : rng(r), current_x(init_x) {}
 
-        value_type operator*() const {
-            return m_current_x;
-        }
+        double operator*() const { return current_x; }
 
         Iterator& operator++() {
-            m_current_x = std::fmod(m_a * m_current_x + m_c, static_cast<double>(m_m));
+            current_x = rng->next();
             return *this;
         }
 
         Iterator operator++(int) {
-            Iterator tmp = *this;
+            Iterator temp = *this;
             ++(*this);
-            return tmp;
+            return temp;
         }
+
+        bool operator==(const EndSentinel& sent) const {
+            return std::abs(current_x - sent.initial_x()) < sent.eps();
+        }
+        bool operator!=(const EndSentinel& sent) const { return !(*this == sent); }
     };
 
-    class EndSentinel {
-        friend SimpleRNG;
-    private:
-        double initial_x;
-        double eps;
-        EndSentinel(double i, double e) : initial_x(i), eps(e) {}
-    public:
-        bool operator==(const EndSentinel& other) const {
-            return initial_x == other.initial_x && eps == other.eps;
-        }
-        bool operator!=(const EndSentinel& other) const {
-            return !(*this == other);
-        }
-    };
-
-    Iterator begin() const {
-        return Iterator(m_m, m_a, m_c, m_current_x);
-    }
+    Iterator begin() { return Iterator(this, m_current_x); }
 
     EndSentinel end(double eps = 0.05) {
-        return EndSentinel(m_current_x, eps);
-    }
-
-    friend bool operator==(const Iterator& it, const EndSentinel& sent) {
-        return std::abs(it.m_current_x - sent.initial_x) < sent.eps;
-    }
-
-    friend bool operator==(const EndSentinel& sent, const Iterator& it) {
-        return it == sent;
-    }
-
-    friend bool operator!=(const Iterator& it, const EndSentinel& sent) {
-        return !(it == sent);
-    }
-
-    friend bool operator!=(const EndSentinel& sent, const Iterator& it) {
-        return !(it == sent);
+        return EndSentinel(m_initial_x, eps);
     }
 };
+
+#endif
