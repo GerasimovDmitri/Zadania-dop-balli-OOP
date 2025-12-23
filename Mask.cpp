@@ -61,8 +61,8 @@ public:
     }
 
     template <typename Container, typename Func>
-    Container slice_and_transform(const Container& container, Func&& f) const {
-        Container result; 
+    std::vector<typename Container::value_type> slice_and_transform(const Container& container, Func&& f) const {
+        std::vector<typename Container::value_type> result;
         size_t mask_idx = 0;
         for (const auto& elem : container) {
             if (this->at(mask_idx % N) == 1) {
