@@ -24,61 +24,75 @@ public:
 template <typename T, size_t N>
 class MemReserver {
 private:
-    alignas(T) char storage_[N * sizeof(T)]; 
-    bool occupied_[N];    
+    struct Slot {
+        alignas(T) char data[sizeof(T)];
+        bool occupied = false;
+
+        T* obj() { return reinterpret_cast<T*>(data); }
+        const T* obj() const { return reinterpret_cast<const T*>(data); }
+
+        void construct(auto&&... args) {
+            new (obj()) T(std::forward<decltype(args)>(args)...);
+            occupied = true;
+        }
+
+        void destruct() {
+            if (occupied) {
+                obj()->~T();
+                occupied = false;
+            }
+        }
+    };
+
+    Slot slots[N];
+    size_t free_stack[N];
+    size_t free_top = N;
 
 public:
     MemReserver() {
         for (size_t i = 0; i < N; ++i) {
-            occupied_[i] = false;
+            free_stack[i] = i;
         }
     }
 
     ~MemReserver() {
-        for (size_t i = 0; i < N; ++i) {
-            if (occupied_[i]) {
-                reinterpret_cast<T*>(&storage_[i * sizeof(T)])->~T();
-            }
+        for (auto& s : slots) {
+            s.destruct();
         }
     }
 
     template <typename... Args>
     T& create(Args&&... args) {
-        for (size_t i = 0; i < N; ++i) {
-            if (!occupied_[i]) {
-                new (&storage_[i * sizeof(T)]) T(std::forward<Args>(args)...);
-                occupied_[i] = true;
-                return *reinterpret_cast<T*>(&storage_[i * sizeof(T)]);
-            }
+        if (free_top == 0) {
+            throw NotEnoughSlotsError(count());
         }
-        throw NotEnoughSlotsError(count());
+        size_t idx = free_stack[--free_top];
+        slots[idx].construct(std::forward<Args>(args)...);
+        return *slots[idx].obj();
     }
 
     void delete_(size_t index) {
-        if (index >= N || !occupied_[index]) {
+        if (index >= N || !slots[index].occupied) {
             throw EmptySlotError();
         }
-        reinterpret_cast<T*>(&storage_[index * sizeof(T)])->~T();
-        occupied_[index] = false;
+        slots[index].destruct();
+        free_stack[free_top++] = index;
     }
 
     size_t count() const {
-        size_t cnt = 0;
-        for (size_t i = 0; i < N; ++i) {
-            if (occupied_[i]) ++cnt;
-        }
-        return cnt;
+        return N - free_top;
     }
 
     T& get(size_t index) {
-        if (index >= N || !occupied_[index]) {
+        if (index >= N || !slots[index].occupied) {
             throw EmptySlotError();
         }
-        return *reinterpret_cast<T*>(&storage_[index * sizeof(T)]);
+        return *slots[index].obj();
     }
+
     size_t position(const T& obj) {
         for (size_t i = 0; i < N; ++i) {
-            if (occupied_[i] && reinterpret_cast<T*>(&storage_[i * sizeof(T)]) == &obj) {
+            if (slots[i].occupied && &obj == slots[i].obj()) {
                 return i;
             }
         }
